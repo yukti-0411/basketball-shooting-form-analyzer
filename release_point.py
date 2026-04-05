@@ -7,13 +7,14 @@ from ultralytics import YOLO
 
 from angle_analysis import analyze_release_frame
 from feedback import generate_feedback
+from load_position import detect_load_position
 
 
 # ----- Video and output -----
 input_video_path = "test_video1.mp4"
 release_image_path = "release_frame.jpg"
 
-# ----- Ball detection (same idea as analyzer.py) -----
+# ----- Ball detection -----
 SPORTS_BALL_CLASS_ID = 32
 YOLO_MIN_CONF = 0.25
 HSV_ORANGE_LOWER = np.array([8, 80, 80], dtype=np.uint8)
@@ -24,18 +25,13 @@ model = YOLO("yolov8x.pt")
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 
-# ----- Release detection (tune for your camera / resolution) -----
-# "Near wrist": previous frame must be at least this close (pixels).
 NEAR_WRIST_FRAC = 0.35
-# "Sudden jump": distance must grow by at least this many pixels in one frame.
 JUMP_FRAC = 0.03
 
 
 def xyxy_to_xywh(x1, y1, x2, y2):
     x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-    w = x2 - x1
-    h = y2 - y1
-    return x1, y1, w, h
+    return x1, y1, x2 - x1, y2 - y1
 
 
 def draw_ball_circle(frame_img, bx, by, bw, bh):
@@ -92,10 +88,7 @@ def find_ball_init_scan(cap, use_yolo):
         ok, frame = cap.read()
         if not ok:
             return None, None
-        if use_yolo:
-            box = yolo_best_sports_ball(frame)
-        else:
-            box = hsv_orange_bbox(frame)
+        box = yolo_best_sports_ball(frame) if use_yolo else hsv_orange_bbox(frame)
         if box is not None:
             return index, box
         index += 1
@@ -106,7 +99,6 @@ def create_csrt():
 
 
 def distance_ball_to_closest_wrist(landmarks, frame_w, frame_h, ball_cx, ball_cy):
-    """Shortest pixel distance from ball center to left or right wrist (if visible)."""
     best = None
     for idx in (mp_pose.PoseLandmark.LEFT_WRIST, mp_pose.PoseLandmark.RIGHT_WRIST):
         lm = landmarks.landmark[idx]
@@ -120,10 +112,10 @@ def distance_ball_to_closest_wrist(landmarks, frame_w, frame_h, ball_cx, ball_cy
     return best
 
 
-# ----- Pass 1: first frame with a ball (YOLO, then HSV) -----
+# ----- Pass 1: find ball -----
 cap = cv2.VideoCapture(input_video_path)
 if not cap.isOpened():
-    print(f"Error: Could not open input video: {input_video_path}")
+    print(f"Error: Could not open video: {input_video_path}")
     raise SystemExit
 
 frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -134,21 +126,18 @@ cap.release()
 
 if init_frame_index is None:
     cap = cv2.VideoCapture(input_video_path)
-    if not cap.isOpened():
-        print("Error: Could not reopen video for HSV fallback.")
-        raise SystemExit
     init_frame_index, init_bbox = find_ball_init_scan(cap, use_yolo=False)
     cap.release()
 
 if init_bbox is None:
-    print("Error: No ball found. Cannot estimate release.")
+    print("Error: No ball found.")
     raise SystemExit
 
 min_dim = min(frame_width, frame_height)
 near_wrist_max = NEAR_WRIST_FRAC * min_dim
 jump_min = JUMP_FRAC * min_dim
 
-# ----- Pass 2: track ball + pose, watch wrist–ball distance -----
+# ----- Pass 2: detect release -----
 cap = cv2.VideoCapture(input_video_path)
 if not cap.isOpened():
     print("Error: Could not open video for processing.")
@@ -158,6 +147,7 @@ tracker = None
 frame_number = 0
 prev_dist = None
 release_found = False
+release_frame_number = None
 
 with mp_pose.Pose(
     static_image_mode=False,
@@ -199,23 +189,14 @@ with mp_pose.Pose(
             ball_cy = by + bh / 2
             dist = distance_ball_to_closest_wrist(
                 pose_results.pose_landmarks,
-                frame_width,
-                frame_height,
-                ball_cx,
-                ball_cy,
+                frame_width, frame_height, ball_cx, ball_cy,
             )
 
         if pose_results.pose_landmarks:
             mp_drawing.draw_landmarks(
-                frame,
-                pose_results.pose_landmarks,
-                mp_pose.POSE_CONNECTIONS,
-                landmark_drawing_spec=mp_drawing.DrawingSpec(
-                    color=(0, 255, 0), thickness=2, circle_radius=2
-                ),
-                connection_drawing_spec=mp_drawing.DrawingSpec(
-                    color=(0, 0, 255), thickness=2
-                ),
+                frame, pose_results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
+                landmark_drawing_spec=mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
+                connection_drawing_spec=mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2),
             )
 
         if ball_bbox_xywh is not None:
@@ -229,27 +210,35 @@ with mp_pose.Pose(
             and (dist - prev_dist) > jump_min
         ):
             cv2.imwrite(release_image_path, frame)
+            release_frame_number = frame_number
             print(f"Release point frame number: {frame_number}")
             print(f"Saved image: {release_image_path}")
+
             if pose_results.pose_landmarks is not None and ball_bbox_xywh is not None:
-                metrics = analyze_release_frame(
+                # Analyze release frame
+                release_metrics = analyze_release_frame(
                     frame,
                     pose_results.pose_landmarks,
                     ball_bbox_xywh,
                     frame_width,
                     frame_height,
                 )
+
+                # Detect load position now that we know release frame number
+                print("\nDetecting load position...")
+                load_metrics = detect_load_position(
+                    input_video_path,
+                    release_frame_number=frame_number,
+                )
+
+                # Generate combined feedback
                 generate_feedback(
-                    metrics["elbow_angle_deg"],
-                    metrics["knee_angle_deg"],
-                    metrics["wrist_above_shoulder"],
-                    metrics["elbow_offset_px"],
-                    metrics["flare_threshold_px"],
+                    release_metrics=release_metrics,
+                    load_metrics=load_metrics,
                 )
             else:
-                print(
-                    "Skipping angle analysis and feedback: missing pose landmarks or ball box on release frame."
-                )
+                print("Skipping analysis — missing pose or ball data.")
+
             release_found = True
             break
 
@@ -263,7 +252,4 @@ with mp_pose.Pose(
 cap.release()
 
 if not release_found:
-    print(
-        "No release spike found. Try lowering NEAR_WRIST_FRAC or JUMP_FRAC, "
-        "or check that wrists and ball are visible when the ball leaves the hand."
-    )
+    print("No release spike found. Try lowering NEAR_WRIST_FRAC or JUMP_FRAC.")
