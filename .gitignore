@@ -1,6 +1,9 @@
 yolov8x.pt
 *.pt
 *.mp4
+*.jpg
+*.jpeg
+*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
