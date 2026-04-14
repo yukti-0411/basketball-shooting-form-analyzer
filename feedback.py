@@ -6,7 +6,11 @@ GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 
-def _build_raw_data_summary(release_metrics: Dict[str, Any], load_metrics: Optional[Dict[str, Any]]) -> str:
+def _build_raw_data_summary(
+    release_metrics: Dict[str, Any],
+    load_metrics: Optional[Dict[str, Any]],
+    followthrough_metrics: Optional[Dict[str, Any]]
+) -> str:
     lines = []
 
     lines.append("=== RELEASE FRAME MEASUREMENTS ===")
@@ -23,6 +27,8 @@ def _build_raw_data_summary(release_metrics: Dict[str, Any], load_metrics: Optio
     flare_threshold = release_metrics.get("flare_threshold_px")
     if elbow_offset is not None and flare_threshold is not None:
         lines.append(f"- Elbow horizontal offset from shoulder: {abs(elbow_offset):.1f} px (flare threshold: {flare_threshold:.1f} px)")
+
+    elbow_load = None
 
     if load_metrics:
         lines.append("")
@@ -57,6 +63,19 @@ def _build_raw_data_summary(release_metrics: Dict[str, Any], load_metrics: Optio
         if elbow_load and elbow_release:
             lines.append(f"- Elbow angle change from load to release: {elbow_release - elbow_load:.1f} deg")
 
+    if followthrough_metrics:
+        lines.append("")
+        lines.append("=== FOLLOW THROUGH MEASUREMENTS ===")
+        wrist_snapped = followthrough_metrics.get("wrist_snapped")
+        if wrist_snapped is not None:
+            lines.append(f"- Wrist snap (goose neck): {'yes' if wrist_snapped else 'no'}")
+        elbow_ft = followthrough_metrics.get("elbow_angle_deg")
+        if elbow_ft is not None:
+            lines.append(f"- Elbow angle at follow through: {elbow_ft:.1f} deg")
+        balance_ft = followthrough_metrics.get("balance_ok")
+        if balance_ft is not None:
+            lines.append(f"- Body balanced after release: {'yes' if balance_ft else 'no'}")
+
     return "\n".join(lines)
 
 
@@ -74,7 +93,7 @@ def _call_groq_api(prompt, api_key):
                 "content": (
                     "You are an expert basketball shooting coach with deep knowledge of biomechanics. "
                     "You will be given raw angle and position measurements from a player's shooting motion, "
-                    "covering the load position, release point, and transition between them. "
+                    "covering the load position, release point, follow through, and transitions between them. "
                     "Based on your expertise, interpret these numbers and write a detailed personalized coaching report. "
                     "Structure your response as:\n"
                     "1) Overall assessment in 1-2 sentences.\n"
@@ -96,10 +115,10 @@ def _call_groq_api(prompt, api_key):
 def generate_feedback(
     release_metrics: Dict[str, Any],
     load_metrics: Optional[Dict[str, Any]] = None,
+    followthrough_metrics: Optional[Dict[str, Any]] = None,
     api_key: Optional[str] = None,
 ):
-    raw_summary = _build_raw_data_summary(release_metrics, load_metrics)
-
+    raw_summary = _build_raw_data_summary(release_metrics, load_metrics, followthrough_metrics)
 
     key = api_key or os.environ.get("GROQ_API_KEY")
     if not key:

@@ -8,6 +8,7 @@ mp_drawing = mp.solutions.drawing_utils
 
 LOAD_FRAME_PATH = "load_frame.jpg"
 MIN_VISIBILITY = 0.5
+MIN_ORANGE_AREA = 400
 
 
 def _lm_px(lm, frame_w, frame_h):
@@ -71,6 +72,45 @@ def _get_min_knee_angle(landmarks, frame_w, frame_h):
     return min(angles)
 
 
+def hsv_orange_bbox(frame):
+    HSV_ORANGE_LOWER = np.array([8, 80, 80], dtype=np.uint8)
+    HSV_ORANGE_UPPER = np.array([28, 255, 255], dtype=np.uint8)
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, HSV_ORANGE_LOWER, HSV_ORANGE_UPPER)
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    best = None
+    best_score = 0
+
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area < MIN_ORANGE_AREA:
+            continue
+        x, y, w, h = cv2.boundingRect(contour)
+        if w < 2 or h < 2:
+            continue
+        aspect_ratio = w / h
+        if not (0.4 <= aspect_ratio <= 2.5):
+            continue
+        perimeter = cv2.arcLength(contour, True)
+        if perimeter == 0:
+            continue
+        circularity = 4 * math.pi * area / (perimeter ** 2)
+        if circularity < 0.5:
+            continue
+        score = area * circularity
+        if score > best_score:
+            best = (x, y, w, h)
+            best_score = score
+
+    return best
+
+
 def detect_load_position(video_path, release_frame_number, ball_bbox_at_load=None):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -97,10 +137,8 @@ def detect_load_position(video_path, release_frame_number, ball_bbox_at_load=Non
             ok, frame = cap.read()
             if not ok:
                 break
-
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = pose.process(frame_rgb)
-
             if results.pose_landmarks:
                 angle = _get_min_knee_angle(results.pose_landmarks, frame_width, frame_height)
                 if angle is not None and angle < best_angle:
@@ -108,7 +146,6 @@ def detect_load_position(video_path, release_frame_number, ball_bbox_at_load=Non
                     best_frame = frame.copy()
                     best_frame_number = frame_number
                     best_landmarks = results.pose_landmarks
-
             frame_number += 1
 
     cap.release()
@@ -126,7 +163,6 @@ def detect_load_position(video_path, release_frame_number, ball_bbox_at_load=Non
     print("\n--- Load Position Analysis ---")
     print(f"Load position frame number: {best_frame_number}")
 
-    # ---- 1. Knee angles ----
     knee_angle_left = None
     knee_angle_right = None
 
@@ -149,7 +185,6 @@ def detect_load_position(video_path, release_frame_number, ball_bbox_at_load=Non
                               f"Knee {knee_angle_right:.0f} deg")
         print(f"Right knee angle: {knee_angle_right:.1f} deg")
 
-    # ---- 2. Elbow angle ----
     elbow_angle = None
     for side in [
         (mp_pose.PoseLandmark.RIGHT_SHOULDER, mp_pose.PoseLandmark.RIGHT_ELBOW, mp_pose.PoseLandmark.RIGHT_WRIST),
@@ -167,17 +202,14 @@ def detect_load_position(video_path, release_frame_number, ball_bbox_at_load=Non
                 print(f"Elbow angle at load: {elbow_angle:.1f} deg")
                 break
 
-    # ---- 3. Hip squareness ----
     hip_square = None
     if left_hip and right_hip:
         hip_y_diff = abs(left_hip[1] - right_hip[1])
         hip_square = hip_y_diff < (0.05 * frame_height)
         _draw_line_with_label(best_frame, left_hip, right_hip,
                               f"Hips {'Square' if hip_square else 'Tilted'}", color=(0, 165, 255))
-        print(f"Hip squareness — y difference: {hip_y_diff:.1f}px — "
-              f"{'SQUARE' if hip_square else 'TILTED'}")
+        print(f"Hip squareness: {'SQUARE' if hip_square else 'TILTED'}")
 
-    # ---- 4. Ball height at load ----
     ball_height_ok = None
     left_shoulder = _get_point(best_landmarks, mp_pose.PoseLandmark.LEFT_SHOULDER, frame_width, frame_height)
     right_shoulder = _get_point(best_landmarks, mp_pose.PoseLandmark.RIGHT_SHOULDER, frame_width, frame_height)
@@ -195,10 +227,8 @@ def detect_load_position(video_path, release_frame_number, ball_bbox_at_load=Non
             cv2.circle(best_frame, (int(bx + bw/2), int(ball_cy)), int(min(bw, bh)/2), (0, 255, 0), 2)
             cv2.putText(best_frame, label, (int(bx + bw/2) + 10, int(ball_cy)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2, cv2.LINE_AA)
-            print(f"Ball height at load — "
-                  f"{'between hip and shoulder (GOOD)' if ball_height_ok else 'not in ideal range'}")
+            print(f"Ball height: {'GOOD' if ball_height_ok else 'LOW'}")
 
-    # ---- 5. Body balance ----
     balance_ok = None
     if left_hip and right_hip and left_ankle and right_ankle:
         hip_mid_x = (left_hip[0] + right_hip[0]) / 2
@@ -206,8 +236,7 @@ def detect_load_position(video_path, release_frame_number, ball_bbox_at_load=Non
         balance_offset = abs(hip_mid_x - ankle_mid_x)
         balance_threshold = 0.08 * frame_width
         balance_ok = balance_offset < balance_threshold
-        print(f"Body balance — hip vs ankle center offset: {balance_offset:.1f}px — "
-              f"{'BALANCED' if balance_ok else 'LEANING'}")
+        print(f"Body balance: {'BALANCED' if balance_ok else 'LEANING'}")
 
     cv2.imwrite(LOAD_FRAME_PATH, best_frame)
     print(f"Saved load frame: {LOAD_FRAME_PATH}")

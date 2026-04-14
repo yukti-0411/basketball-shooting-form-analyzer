@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shotlytics — AI Basketball Shooting Analyzer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-logo">SHOTLYTICS</div>
+  <div class="nav-tag">AI Shooting Form Analyzer</div>
+</nav>
+
+<section class="hero">
+  <div class="hero-text">
+    <h1>Analyze Your<br><span class="accent">Shot Form</span><br>With AI</h1>
+    <p>Upload a basketball shooting video. Get instant biomechanical analysis of your load position, release point, and follow through — with personalized AI coaching.</p>
+  </div>
+  <div class="upload-card" id="uploadCard">
+    <div class="upload-zone" id="uploadZone">
+      <div class="upload-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <p class="upload-title">Drop your video here</p>
+      <p class="upload-sub">MP4, MOV, AVI — max 200MB</p>
+      <input type="file" id="fileInput" accept=".mp4,.mov,.avi" hidden>
+      <button class="btn-upload" onclick="document.getElementById('fileInput').click()">Choose Video</button>
+    </div>
+    <div class="file-selected" id="fileSelected" style="display:none">
+      <div class="file-info">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><polyline points="9 11 12 14 22 4"/>
+        </svg>
+        <span id="fileName">video.mp4</span>
+      </div>
+      <button class="btn-analyze" id="analyzeBtn" onclick="startAnalysis()">
+        <span>Analyze Shot</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- Progress -->
+<section class="progress-section" id="progressSection" style="display:none">
+  <div class="progress-container">
+    <h2 class="section-title">Analyzing your shot...</h2>
+    <div class="steps">
+      <div class="step" id="step1">
+        <div class="step-dot"></div>
+        <span>Locating basketball</span>
+      </div>
+      <div class="step" id="step2">
+        <div class="step-dot"></div>
+        <span>Detecting body pose</span>
+      </div>
+      <div class="step" id="step3">
+        <div class="step-dot"></div>
+        <span>Finding release point</span>
+      </div>
+      <div class="step" id="step4">
+        <div class="step-dot"></div>
+        <span>Calculating angles</span>
+      </div>
+      <div class="step" id="step5">
+        <div class="step-dot"></div>
+        <span>Generating AI coaching</span>
+      </div>
+    </div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+  </div>
+</section>
+
+<!-- Results -->
+<section class="results-section" id="resultsSection" style="display:none">
+
+  <h2 class="section-title">Shot Analysis Results</h2>
+
+  <!-- Frame Images -->
+  <div class="frames-grid">
+    <div class="frame-card">
+      <div class="frame-label">LOAD POSITION</div>
+      <img id="loadImg" src="" alt="Load position frame">
+      <div class="frame-desc">Maximum knee bend before shot</div>
+    </div>
+    <div class="frame-card highlight">
+      <div class="frame-label">RELEASE POINT</div>
+      <img id="releaseImg" src="" alt="Release frame">
+      <div class="frame-desc">Moment ball leaves hand</div>
+    </div>
+    <div class="frame-card">
+      <div class="frame-label">FOLLOW THROUGH</div>
+      <img id="followthroughImg" src="" alt="Follow through frame">
+      <div class="frame-desc">Wrist snap after release</div>
+    </div>
+  </div>
+
+  <!-- Metrics -->
+  <div class="metrics-section">
+    <h3 class="metrics-title">Biomechanical Measurements</h3>
+    <div class="metrics-tabs">
+      <button class="tab active" onclick="showTab('release')">Release</button>
+      <button class="tab" onclick="showTab('load')">Load</button>
+      <button class="tab" onclick="showTab('followthrough')">Follow Through</button>
+    </div>
+
+    <div class="metrics-panel active" id="panel-release">
+      <div class="metrics-grid" id="releaseMetrics"></div>
+    </div>
+    <div class="metrics-panel" id="panel-load">
+      <div class="metrics-grid" id="loadMetrics"></div>
+    </div>
+    <div class="metrics-panel" id="panel-followthrough">
+      <div class="metrics-grid" id="followthroughMetrics"></div>
+    </div>
+  </div>
+
+  <!-- Coaching -->
+  <div class="coaching-section">
+    <div class="coaching-header">
+      <div class="coaching-icon">🏀</div>
+      <h3>AI Coaching Report</h3>
+    </div>
+    <div class="coaching-text" id="coachingText"></div>
+  </div>
+
+  <!-- Analyze again -->
+  <div class="again-section">
+    <button class="btn-again" onclick="resetUI()">Analyze Another Shot</button>
+  </div>
+
+</section>
+
+<!-- Error -->
+<div class="error-toast" id="errorToast" style="display:none">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+  </svg>
+  <span id="errorMsg">Something went wrong.</span>
+</div>
+
+<footer class="footer">
+  <p>Shotlytics — Built with MediaPipe, YOLOv8 & Groq AI</p>
+</footer>
+
+<script src="/static/script.js"></script>
+</body>
+</html>

@@ -73,13 +73,39 @@ def hsv_orange_bbox(frame):
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None
-    largest = max(contours, key=cv2.contourArea)
-    if cv2.contourArea(largest) < MIN_ORANGE_AREA:
-        return None
-    x, y, w, h = cv2.boundingRect(largest)
-    if w < 2 or h < 2:
-        return None
-    return x, y, w, h
+
+    best = None
+    best_score = 0
+
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area < MIN_ORANGE_AREA:
+            continue
+
+        x, y, w, h = cv2.boundingRect(contour)
+        if w < 2 or h < 2:
+            continue
+
+        # Reject very elongated shapes
+        aspect_ratio = w / h
+        if not (0.4 <= aspect_ratio <= 2.5):
+            continue
+
+        # Relaxed circularity — accepts ovals from motion blur
+        perimeter = cv2.arcLength(contour, True)
+        if perimeter == 0:
+            continue
+        circularity = 4 * math.pi * area / (perimeter ** 2)
+        if circularity < 0.5:
+            continue
+
+        # Score = area * circularity — prefers large AND circular objects
+        score = area * circularity
+        if score > best_score:
+            best = (x, y, w, h)
+            best_score = score
+
+    return best
 
 
 def find_ball_init_scan(cap, use_yolo):
@@ -215,7 +241,6 @@ with mp_pose.Pose(
             print(f"Saved image: {release_image_path}")
 
             if pose_results.pose_landmarks is not None and ball_bbox_xywh is not None:
-                # Analyze release frame
                 release_metrics = analyze_release_frame(
                     frame,
                     pose_results.pose_landmarks,
@@ -224,14 +249,12 @@ with mp_pose.Pose(
                     frame_height,
                 )
 
-                # Detect load position now that we know release frame number
                 print("\nDetecting load position...")
                 load_metrics = detect_load_position(
                     input_video_path,
                     release_frame_number=frame_number,
                 )
 
-                # Generate combined feedback
                 generate_feedback(
                     release_metrics=release_metrics,
                     load_metrics=load_metrics,
