@@ -17,7 +17,6 @@ from angle_analysis import analyze_release_frame
 from feedback import generate_feedback
 
 
-# ----- Constants -----
 SPORTS_BALL_CLASS_ID = 32
 YOLO_MIN_CONF = 0.25
 HSV_ORANGE_LOWER = np.array([8, 80, 80], dtype=np.uint8)
@@ -29,14 +28,11 @@ FOLLOWTHROUGH_OFFSET = 4
 MIN_VISIBILITY = 0.5
 FLARE_FRAC = 0.10
 
-# Load YOLO model once at module level
 model = YOLO("yolov8x.pt")
-
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 
 
-# ----- Utility functions -----
 def xyxy_to_xywh(x1, y1, x2, y2):
     x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
     return x1, y1, x2 - x1, y2 - y1
@@ -223,7 +219,6 @@ def analyze_load_frame(frame, landmarks, frame_width, frame_height, output_dir):
 
     knee_angle_left = None
     knee_angle_right = None
-
     left_hip = get_point(landmarks, mp_pose.PoseLandmark.LEFT_HIP, frame_width, frame_height)
     left_knee = get_point(landmarks, mp_pose.PoseLandmark.LEFT_KNEE, frame_width, frame_height)
     left_ankle = get_point(landmarks, mp_pose.PoseLandmark.LEFT_ANKLE, frame_width, frame_height)
@@ -233,28 +228,25 @@ def analyze_load_frame(frame, landmarks, frame_width, frame_height, output_dir):
 
     if left_hip and left_knee and left_ankle:
         knee_angle_left = angle_at_vertex_deg(left_hip, left_knee, left_ankle)
-        draw_angle_highlight(frame_out, left_hip, left_knee, left_ankle,
-                             f"Knee {knee_angle_left:.0f} deg")
+        draw_angle_highlight(frame_out, left_hip, left_knee, left_ankle, f"Knee {knee_angle_left:.0f} deg")
 
     if right_hip and right_knee and right_ankle:
         knee_angle_right = angle_at_vertex_deg(right_hip, right_knee, right_ankle)
-        draw_angle_highlight(frame_out, right_hip, right_knee, right_ankle,
-                             f"Knee {knee_angle_right:.0f} deg")
+        draw_angle_highlight(frame_out, right_hip, right_knee, right_ankle, f"Knee {knee_angle_right:.0f} deg")
 
     elbow_angle = None
     for side in [
         (mp_pose.PoseLandmark.RIGHT_SHOULDER, mp_pose.PoseLandmark.RIGHT_ELBOW, mp_pose.PoseLandmark.RIGHT_WRIST),
         (mp_pose.PoseLandmark.LEFT_SHOULDER, mp_pose.PoseLandmark.LEFT_ELBOW, mp_pose.PoseLandmark.LEFT_WRIST),
     ]:
-        shoulder = get_point(landmarks, side[0], frame_width, frame_height)
-        elbow = get_point(landmarks, side[1], frame_width, frame_height)
-        wrist = get_point(landmarks, side[2], frame_width, frame_height)
-        if shoulder and elbow and wrist:
-            a = angle_at_vertex_deg(shoulder, elbow, wrist)
+        s = get_point(landmarks, side[0], frame_width, frame_height)
+        e = get_point(landmarks, side[1], frame_width, frame_height)
+        w = get_point(landmarks, side[2], frame_width, frame_height)
+        if s and e and w:
+            a = angle_at_vertex_deg(s, e, w)
             if a is not None:
                 elbow_angle = a
-                draw_angle_highlight(frame_out, shoulder, elbow, wrist,
-                                     f"Elbow {a:.0f} deg", color=(255, 165, 0))
+                draw_angle_highlight(frame_out, s, e, w, f"Elbow {a:.0f} deg", color=(255, 165, 0))
                 break
 
     hip_square = None
@@ -268,12 +260,9 @@ def analyze_load_frame(frame, landmarks, frame_width, frame_height, output_dir):
     if left_hip and right_hip and left_ankle and right_ankle:
         hip_mid_x = (left_hip[0] + right_hip[0]) / 2
         ankle_mid_x = (left_ankle[0] + right_ankle[0]) / 2
-        balance_offset = abs(hip_mid_x - ankle_mid_x)
-        balance_ok = balance_offset < (0.08 * frame_width)
+        balance_ok = abs(hip_mid_x - ankle_mid_x) < (0.08 * frame_width)
 
-    load_image_path = os.path.join(output_dir, "load_frame.jpg")
-    cv2.imwrite(load_image_path, frame_out)
-
+    cv2.imwrite(os.path.join(output_dir, "load_frame.jpg"), frame_out)
     return {
         "knee_angle_left": knee_angle_left,
         "knee_angle_right": knee_angle_right,
@@ -306,7 +295,6 @@ def analyze_followthrough_frame(frame, landmarks, frame_width, frame_height,
     right_hip = get_point(landmarks, mp_pose.PoseLandmark.RIGHT_HIP, frame_width, frame_height)
     left_ankle = get_point(landmarks, mp_pose.PoseLandmark.LEFT_ANKLE, frame_width, frame_height)
     right_ankle = get_point(landmarks, mp_pose.PoseLandmark.RIGHT_ANKLE, frame_width, frame_height)
-
     shoulder = get_point(landmarks, shoulder_i, frame_width, frame_height)
     elbow = get_point(landmarks, elbow_i, frame_width, frame_height)
     wrist = get_point(landmarks, wrist_i, frame_width, frame_height)
@@ -314,12 +302,9 @@ def analyze_followthrough_frame(frame, landmarks, frame_width, frame_height,
     elbow_angle = None
     if shoulder and elbow and wrist:
         elbow_angle = angle_at_vertex_deg(shoulder, elbow, wrist)
-        cv2.line(frame_out, (int(shoulder[0]), int(shoulder[1])),
-                 (int(elbow[0]), int(elbow[1])), (255, 165, 0), 2, cv2.LINE_AA)
-        cv2.line(frame_out, (int(wrist[0]), int(wrist[1])),
-                 (int(elbow[0]), int(elbow[1])), (255, 165, 0), 2, cv2.LINE_AA)
-        cv2.putText(frame_out, f"Elbow {elbow_angle:.0f} deg",
-                    (int(elbow[0]) + 10, int(elbow[1]) - 10),
+        cv2.line(frame_out, (int(shoulder[0]), int(shoulder[1])), (int(elbow[0]), int(elbow[1])), (255, 165, 0), 2, cv2.LINE_AA)
+        cv2.line(frame_out, (int(wrist[0]), int(wrist[1])), (int(elbow[0]), int(elbow[1])), (255, 165, 0), 2, cv2.LINE_AA)
+        cv2.putText(frame_out, f"Elbow {elbow_angle:.0f} deg", (int(elbow[0]) + 10, int(elbow[1]) - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 165, 0), 2, cv2.LINE_AA)
 
     wrist_snapped = None
@@ -328,42 +313,56 @@ def analyze_followthrough_frame(frame, landmarks, frame_width, frame_height,
         wrist_snapped = wrist_elbow_diff_now > wrist_elbow_diff_at_release
         snap_text = "Snap: YES" if wrist_snapped else "Snap: NO"
         snap_color = (0, 255, 0) if wrist_snapped else (0, 0, 255)
-        cv2.putText(frame_out, snap_text,
-                    (int(wrist[0]) + 10, int(wrist[1])),
+        cv2.putText(frame_out, snap_text, (int(wrist[0]) + 10, int(wrist[1])),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, snap_color, 2, cv2.LINE_AA)
 
     balance_ok = None
     if left_hip and right_hip and left_ankle and right_ankle:
         hip_mid_x = (left_hip[0] + right_hip[0]) / 2
         ankle_mid_x = (left_ankle[0] + right_ankle[0]) / 2
-        balance_offset = abs(hip_mid_x - ankle_mid_x)
-        balance_ok = balance_offset < (0.08 * frame_width)
+        balance_ok = abs(hip_mid_x - ankle_mid_x) < (0.08 * frame_width)
         balance_text = "Balance: OK" if balance_ok else "Balance: LEANING"
         balance_color = (0, 255, 0) if balance_ok else (0, 0, 255)
-        cv2.putText(frame_out, balance_text,
-                    (20, frame_height - 30),
+        cv2.putText(frame_out, balance_text, (20, frame_height - 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, balance_color, 2, cv2.LINE_AA)
 
-    followthrough_image_path = os.path.join(output_dir, "followthrough_frame.jpg")
-    cv2.imwrite(followthrough_image_path, frame_out)
-
-    return {
-        "wrist_snapped": wrist_snapped,
-        "elbow_angle_deg": elbow_angle,
-        "balance_ok": balance_ok,
-    }
+    cv2.imwrite(os.path.join(output_dir, "followthrough_frame.jpg"), frame_out)
+    return {"wrist_snapped": wrist_snapped, "elbow_angle_deg": elbow_angle, "balance_ok": balance_ok}
 
 
-def run_analysis(video_path, output_dir, groq_api_key=None):
-    """
-    Main analysis function called by Flask.
-    Returns dict with all metrics, coaching text, and image paths.
-    """
+def slow_down_video(input_path, output_path, speed=0.5):
+    cap = cv2.VideoCapture(input_path)
+    if not cap.isOpened():
+        return input_path
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    new_fps = max(1, fps * speed)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(output_path, fourcc, new_fps, (width, height))
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        out.write(frame)
+    cap.release()
+    out.release()
+    return output_path
+
+
+def run_analysis(video_path, output_dir, groq_api_key=None, progress_callback=None, speed=1.0):
+    def progress(msg):
+        if progress_callback:
+            progress_callback(msg)
+
     os.makedirs(output_dir, exist_ok=True)
+
+    if speed < 1.0:
+        slowed_path = os.path.join(output_dir, "slowed_video.mp4")
+        video_path = slow_down_video(video_path, slowed_path, speed)
 
     release_image_path = os.path.join(output_dir, "release_frame.jpg")
 
-    # ----- Pass 1: find ball -----
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return {"error": "Could not open video file."}
@@ -401,13 +400,14 @@ def run_analysis(video_path, output_dir, groq_api_key=None):
         cap.release()
 
     if init_bbox is None:
-        return {"error": "No basketball detected in video."}
+        return {"error": "No basketball detected. Ensure ball is clearly visible."}
+
+    progress("step:1:Basketball located")
 
     min_dim = min(frame_width, frame_height)
     near_wrist_max = NEAR_WRIST_FRAC * min_dim
     jump_min = JUMP_FRAC * min_dim
 
-    # ----- Pass 2: detect load + release + follow through -----
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return {"error": "Could not reopen video for processing."}
@@ -422,19 +422,16 @@ def run_analysis(video_path, output_dir, groq_api_key=None):
     release_landmarks_stored = None
     release_ball_bbox_stored = None
     wrist_elbow_diff_at_release = None
-
     best_knee_angle = float("inf")
     best_load_frame = None
     best_load_landmarks = None
     best_load_frame_number = 0
     followthrough_frame_data = {}
+    pose_detected = False
 
     with mp_pose.Pose(
-        static_image_mode=False,
-        model_complexity=1,
-        smooth_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
+        static_image_mode=False, model_complexity=1, smooth_landmarks=True,
+        min_detection_confidence=0.5, min_tracking_confidence=0.5,
     ) as pose:
         while True:
             ok, frame = cap.read()
@@ -456,6 +453,10 @@ def run_analysis(video_path, output_dir, groq_api_key=None):
                     bx, by, bw, bh = bbox
                     ball_bbox_xywh = (bx, by, bw, bh)
 
+            if pose_results.pose_landmarks and not pose_detected:
+                pose_detected = True
+                progress("step:2:Body pose detected")
+
             if pose_results.pose_landmarks and not release_found:
                 knee_angle = get_min_knee_angle(pose_results.pose_landmarks, frame_width, frame_height)
                 if knee_angle is not None and knee_angle < best_knee_angle:
@@ -470,9 +471,7 @@ def run_analysis(video_path, output_dir, groq_api_key=None):
                 ball_cx = bx + bw / 2
                 ball_cy = by + bh / 2
                 dist = distance_ball_to_closest_wrist(
-                    pose_results.pose_landmarks,
-                    frame_width, frame_height, ball_cx, ball_cy,
-                )
+                    pose_results.pose_landmarks, frame_width, frame_height, ball_cx, ball_cy)
 
             if pose_results.pose_landmarks:
                 mp_drawing.draw_landmarks(
@@ -480,34 +479,29 @@ def run_analysis(video_path, output_dir, groq_api_key=None):
                     landmark_drawing_spec=mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
                     connection_drawing_spec=mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2),
                 )
+
+            skeleton_only_frame = frame.copy()
+
             if ball_bbox_xywh is not None:
                 bx, by, bw, bh = ball_bbox_xywh
                 draw_ball_circle(frame, bx, by, bw, bh)
 
-            if (
-                not release_found
-                and dist is not None
-                and prev_dist is not None
-                and prev_dist < near_wrist_max
-                and (dist - prev_dist) > jump_min
-            ):
+            if (not release_found and dist is not None and prev_dist is not None
+                    and prev_dist < near_wrist_max and (dist - prev_dist) > jump_min):
                 cv2.imwrite(release_image_path, frame)
                 release_frame_number = frame_number
+                progress("step:3:Release point detected")
 
                 if pose_results.pose_landmarks and ball_bbox_xywh:
                     bx, by, bw, bh = ball_bbox_xywh
                     release_shooting_side = shooting_arm_side(
-                        pose_results.pose_landmarks,
-                        frame_width, frame_height,
-                        bx + bw / 2, by + bh / 2
-                    )
+                        pose_results.pose_landmarks, frame_width, frame_height,
+                        bx + bw / 2, by + bh / 2)
                     release_landmarks_stored = pose_results.pose_landmarks
                     release_ball_bbox_stored = ball_bbox_xywh
                     wrist_elbow_diff_at_release = get_wrist_elbow_y_diff(
-                        pose_results.pose_landmarks,
-                        release_shooting_side or "right",
-                        frame_width, frame_height
-                    )
+                        pose_results.pose_landmarks, release_shooting_side or "right",
+                        frame_width, frame_height)
 
                 release_found = True
 
@@ -515,7 +509,7 @@ def run_analysis(video_path, output_dir, groq_api_key=None):
                 if frame_number == release_frame_number + FOLLOWTHROUGH_OFFSET:
                     if pose_results.pose_landmarks:
                         followthrough_frame_data = {
-                            "frame": frame.copy(),
+                            "frame": skeleton_only_frame.copy(),
                             "landmarks": pose_results.pose_landmarks,
                         }
                     break
@@ -524,7 +518,6 @@ def run_analysis(video_path, output_dir, groq_api_key=None):
                 prev_dist = dist
             else:
                 prev_dist = None
-
             frame_number += 1
 
     cap.release()
@@ -532,15 +525,15 @@ def run_analysis(video_path, output_dir, groq_api_key=None):
     if not release_found:
         return {"error": "No release point detected. Ensure ball and player are clearly visible."}
 
-    # ----- Run analyses -----
     load_metrics = analyze_load_frame(
-        best_load_frame, best_load_landmarks, frame_width, frame_height, output_dir
-    )
+        best_load_frame, best_load_landmarks, frame_width, frame_height, output_dir)
 
     release_metrics = None
     if release_landmarks_stored and release_ball_bbox_stored:
         cap = cv2.VideoCapture(video_path)
         fn = 0
+        import angle_analysis
+        angle_analysis.ANALYZED_FRAME_PATH = os.path.join(output_dir, "analyzed_frame.jpg")
         with mp_pose.Pose(static_image_mode=False, model_complexity=1) as pose:
             while True:
                 ok, frame = cap.read()
@@ -550,37 +543,30 @@ def run_analysis(video_path, output_dir, groq_api_key=None):
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     pose_results = pose.process(frame_rgb)
                     if pose_results.pose_landmarks:
-                        from angle_analysis import ANALYZED_FRAME_PATH
-                        import angle_analysis
-                        angle_analysis.ANALYZED_FRAME_PATH = os.path.join(output_dir, "analyzed_frame.jpg")
                         release_metrics = analyze_release_frame(
                             frame, pose_results.pose_landmarks,
-                            release_ball_bbox_stored, frame_width, frame_height
-                        )
+                            release_ball_bbox_stored, frame_width, frame_height)
                     break
                 fn += 1
         cap.release()
 
+    progress("step:4:Angles calculated")
+
     followthrough_metrics = None
     if followthrough_frame_data:
         followthrough_metrics = analyze_followthrough_frame(
-            followthrough_frame_data["frame"],
-            followthrough_frame_data["landmarks"],
-            frame_width, frame_height,
-            release_shooting_side or "right",
-            wrist_elbow_diff_at_release,
-            output_dir
-        )
+            followthrough_frame_data["frame"], followthrough_frame_data["landmarks"],
+            frame_width, frame_height, release_shooting_side or "right",
+            wrist_elbow_diff_at_release, output_dir)
 
     if not release_metrics:
         return {"error": "Could not analyze release frame."}
 
     coaching = generate_feedback(
-        release_metrics=release_metrics,
-        load_metrics=load_metrics,
-        followthrough_metrics=followthrough_metrics,
-        api_key=groq_api_key,
-    )
+        release_metrics=release_metrics, load_metrics=load_metrics,
+        followthrough_metrics=followthrough_metrics, api_key=groq_api_key)
+
+    progress("step:5:AI coaching generated")
 
     return {
         "load_metrics": load_metrics,
