@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 from typing import Optional, Dict, Any
 
@@ -48,7 +49,7 @@ def _build_raw_data_summary(
             lines.append(f"- Hips square: {'yes' if hip_square else 'no'}")
         balance = load_metrics.get("balance_ok")
         if balance is not None:
-            lines.append(f"- Balanced: {'yes' if balance else 'no'}")
+            lines.append(f"- Balanced at load: {'yes' if balance else 'no'}")
 
         lines.append("")
         lines.append("=== TRANSITION ===")
@@ -64,9 +65,6 @@ def _build_raw_data_summary(
     if followthrough_metrics:
         lines.append("")
         lines.append("=== FOLLOW THROUGH ===")
-        wrist_snapped = followthrough_metrics.get("wrist_snapped")
-        if wrist_snapped is not None:
-            lines.append(f"- Wrist snap: {'yes' if wrist_snapped else 'no'}")
         elbow_ft = followthrough_metrics.get("elbow_angle_deg")
         if elbow_ft is not None:
             lines.append(f"- Elbow at follow through: {elbow_ft:.1f} deg")
@@ -77,14 +75,14 @@ def _build_raw_data_summary(
     return "\n".join(lines)
 
 
-def _call_groq_api(prompt, api_key):
+def _call_groq_api(prompt, api_key, retries=3):
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
     body = {
         "model": GROQ_MODEL,
-        "max_tokens": 500,
+        "max_tokens": 300,
         "messages": [
             {
                 "role": "system",
@@ -99,9 +97,18 @@ def _call_groq_api(prompt, api_key):
             {"role": "user", "content": prompt}
         ],
     }
-    response = requests.post(GROQ_URL, headers=headers, json=body, timeout=120)
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"].strip()
+
+    for attempt in range(retries):
+        try:
+            response = requests.post(GROQ_URL, headers=headers, json=body, timeout=120)
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"].strip()
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 429 and attempt < retries - 1:
+                print(f"\nGroq rate limit hit — retrying in 2 seconds (attempt {attempt + 1}/{retries})")
+                time.sleep(2)
+                continue
+            raise
 
 
 def generate_feedback(
@@ -110,6 +117,7 @@ def generate_feedback(
     followthrough_metrics: Optional[Dict[str, Any]] = None,
     api_key: Optional[str] = None,
 ):
+    """Build raw measurements summary and send to Groq for AI coaching report."""
     raw_summary = _build_raw_data_summary(release_metrics, load_metrics, followthrough_metrics)
 
     key = api_key or os.environ.get("GROQ_API_KEY")
@@ -118,8 +126,7 @@ def generate_feedback(
 
     prompt = (
         "Basketball shooting measurements:\n\n"
-        f"{raw_summary}\n\n"
-        "Write a concise personalized coaching report."
+        f"{raw_summary}"
     )
 
     try:
